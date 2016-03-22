@@ -58,19 +58,32 @@ ORDER BY id
 
 --
 
-- Materialized Views - REFRESH MATERIALIZED VIEW CONCURRENTLY
-- Recursive View Syntax
+Materialized Views - REFRESH MATERIALIZED VIEW CONCURRENTLY
+```
+CREATE MATERIALIZED VIEW matview_user_groups AS
+select email, oug.name AS group_name from org_users ou 
+inner join org_user_user_groups ouug on ou.id = ouug.org_user_id
+inner join org_user_groups oug on oug.id = ouug.org_user_group_id
+where email like 'bridget.rembert@wfhc.org';
+
+SELECT * FROM matview_user_groups;
+
+REFRESH MATERIALIZED VIEW CONCURRENTLY matview_user_groups;
+```
+
+--
+
+Recursive View Syntax
 ```
 CREATE RECURSIVE VIEW t(n) AS
   VALUES (1)
 UNION ALL
   SELECT n+1 FROM t WHERE n < 100;
 ```
-- Updatable Views: Simple views can now be updated in the same way as regular tables. The view can only reference one table (or another updatable view) and must not contain more complex operators, join types etc.
 
 --
 
-- WITH ORDINALITY
+WITH ORDINALITY
 ```
 id |         fac_ids          
 ----+--------------------------
@@ -114,34 +127,35 @@ where id in (3,4)
 
 --
 
-- Aggregate FILTER clause
+Ordered-set aggregates
+
 ```
-master_item_id | facility_id | is_gpo 
-----------------+-------------+--------
-             54 |          18 | f
-             54 |          22 | f
-             54 |           8 | f
-             54 |          19 | f
-             54 |           3 | f
-             54 |          32 | t
-             54 |          23 | f
-             54 |          13 | f
-             54 |          15 | f
-             54 |           6 | f
-             54 |          28 | t
-             54 |          24 | f
-             54 |           4 | f
-             54 |          21 | f
-             54 |           1 | f
-             54 |          10 | f
-             54 |           7 | f
-             54 |           9 | f
-             54 |          11 | f
-             54 |           2 | f
-             54 |          12 | f
-             54 |           5 | f
-             54 |          17 | f
-             54 |          20 | f
+SELECT mode() WITHIN GROUP (ORDER BY vendor_code) 
+FROM master_items;
+
+mode  
+--------
+V72005
+```
+
+```
+select vendor_code 
+from master_items 
+group by vendor_code 
+order by count(1) desc limit 1;
+```
+
+--
+
+Aggregate FILTER clause
+```
+select fi.master_item_id, 
+ array_agg(facility_id) filter (where f.is_gpo) as gpo_fac_ids , 
+ array_agg(facility_id) filter (where not f.is_gpo) as not_gpo_fac_ids
+from facility_items fi 
+inner join facilities f on fi.facility_id = f.id 
+where master_item_id = 54
+group by fi.master_item_id
 ```
 
 =>
@@ -391,10 +405,12 @@ SELECT jsonb_set('{"name": "James",
 - Configuration directive 'include_dir'
 - Parallel pg_dump for faster backups
 ```
-pg_dump -U postgres -j4  -Fd -f /tmp/mydb-dump mydb
+pg_dump -U postgres -j4 -Fd -f /tmp/mydb-dump mydb
 ```
 - Parallel VACUUMing: vacuumdb -j4 productiondb
 - pg_isready: check the connection status of a PostgreSQL server
+
+---
 
 ## Server Programming
 
@@ -402,7 +418,32 @@ pg_dump -U postgres -j4  -Fd -f /tmp/mydb-dump mydb
 - Event Triggers: Triggers can now be defined on DDL events (CREATE, ALTER, DROP)
 - Replication Improvements
 
+--
+
 ## Others
+
+BRIN index
+
+```
+CREATE INDEX idx_master_items_created_at_brin 
+  ON master_items USING BRIN (created_at);
+
+CREATE INDEX idx_master_items_created_at_btree ON master_items (created_at);
+```
+```
+\di+ idx_master_items_created_at_brin
+                                         List of relations
+ Schema |               Name               | Type  |  Owner   |    Table     |  Size  | Description 
+--------+----------------------------------+-------+----------+--------------+--------+-------------
+ public | idx_master_items_created_at_brin | index | postgres | master_items | 104 kB | 
+
+
+\di+ idx_master_items_created_at_btree
+                                         List of relations
+ Schema |               Name                | Type  |  Owner   |    Table     | Size  | Description 
+--------+-----------------------------------+-------+----------+--------------+-------+-------------
+ public | idx_master_items_created_at_btree | index | postgres | master_items | 24 MB | 
+```
 
 --
 
